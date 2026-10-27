@@ -83,14 +83,20 @@ class OCREngine:
 
         self._create_engine(bcp47)
 
-    def detect(self, frame: np.ndarray, offset_x: int = 0, offset_y: int = 0) -> list[TextBlock]:
-        """Run OCR on a frame and return detected text blocks."""
+    def detect(self, frame: np.ndarray, offset_x: int = 0, offset_y: int = 0,
+               preprocessed_frame: np.ndarray | None = None) -> list[TextBlock]:
+        """Run OCR on a frame and return detected text blocks.
+
+        If preprocessed_frame is provided, it is used for OCR recognition
+        instead of the raw frame. Style extraction still uses the original.
+        """
         if self._engine is None or self._loop is None:
             logger.error("OCR not initialized")
             return []
 
+        ocr_input = preprocessed_frame if preprocessed_frame is not None else frame
         try:
-            lines = self._loop.run_until_complete(self._recognize_async(frame))
+            lines = self._loop.run_until_complete(self._recognize_async(ocr_input))
         except Exception as e:
             logger.error("OCR detection failed: %s", e)
             return []

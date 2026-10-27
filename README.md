@@ -13,13 +13,15 @@ Screen Capture (mss/BetterCam)
        |
    Frame Diff (skip if unchanged)
        |
+   Grayscale + threshold preprocessing (OpenCV)
+       |
    WinRT OCR (Windows.Media.Ocr) ~30ms
        |
    Paragraph Merge (join multi-line blocks)
        |
    Style Extraction (detect text/bg colors)
        |
-   NLLB-200 Translation (600M, 200+ languages) ~2s
+   Fuzzy cache lookup -> NLLB-200 Translation (600M, 200+ languages) ~2s on a cache miss
        |
    Transparent Overlay (PyQt5, click-through)
 ```
@@ -30,8 +32,13 @@ Screen Capture (mss/BetterCam)
 - **200+ Languages** — Powered by Meta's NLLB-200 model via HuggingFace Transformers. Translates between any supported language pair.
 - **Transparent Overlay** — Click-through overlay with auto-detected text/background colors. Two-pass rendering (backgrounds first, then text) prevents visual overlap.
 - **Capture Modes** — Fullscreen, region selection (drag to draw), or window-specific capture.
+- **Multi-monitor Capture** — Regions use absolute virtual-desktop coordinates; the capture engine works out which monitor a region is on and, with BetterCam, which DXGI device/output to use.
 - **Smart Diffing** — Only re-processes when the screen content actually changes.
-- **Translation Cache** — Avoids re-translating text that's already been seen.
+- **OCR Preprocessing** — Frames are converted to grayscale and thresholded before OCR; style (colour) extraction still uses the original frame.
+- **Fuzzy Translation Cache** — LRU cache that also matches near-duplicate OCR output (Jaro + Sorensen-Dice similarity, threshold 0.65, 0.55 for CJK/Thai/etc.), so OCR jitter such as `l` vs `I` does not trigger a new translation. Entries expire after a few idle seconds (`cache_ttl_seconds`).
+- **Flicker Suppression** — If a new translation is near-identical to one of the last few, the previous overlay is kept instead of redrawn.
+- **Adaptive Polling** — The pipeline polls fast (~115 ms) while nothing is found, ~320 ms after a translation, and ~620 ms while text looks like it is being typed or scrolled.
+- **Auto-clear** — The overlay is cleared after `auto_clear_delay_seconds` (default 5 s) without a new translation.
 - **System Tray** — Runs in the background with global hotkeys.
 
 ## Hotkeys
@@ -80,7 +87,8 @@ src/
     pipeline.py          # Main capture->OCR->translate loop
     style_extractor.py   # Detect text/background colors from frame
     translation_engine.py # NLLB-200 via HuggingFace Transformers
-    translation_cache.py # LRU cache for translations
+    translation_cache.py # Fuzzy LRU cache with TTL and translation dedup
+    text_similarity.py   # Jaro / Sorensen-Dice string similarity
   models/
     languages.py         # FLORES-200 + BCP-47 language mappings
     text_block.py        # Text block data model
@@ -95,12 +103,26 @@ src/
     model_downloader.py  # HuggingFace model download
     config_manager.py    # YAML config persistence
     window_utils.py      # Win32 window enumeration
+test_fuzzy_cache.py      # Standalone checks for similarity, cache, TTL and dedup
 ```
+
+## Configuration
+
+Settings are stored in `config.yaml` in the working directory. It is created when you save settings in the app, is git-ignored, and falls back to defaults if missing. Cache and overlay behaviour can be tuned there (`cache_similarity_threshold`, `cache_ttl_seconds`, `auto_clear_delay_seconds`, ...).
+
+## Tests
+
+```bash
+python test_fuzzy_cache.py
+```
+
+Runs plain assertions on the similarity functions, fuzzy cache, TTL expiry and translation dedup. It does not need the translation model or a GUI.
 
 ## Known Limitations
 
 - **Translation speed** — ~2-3s per batch on CPU. GPU (CUDA) helps significantly.
 - **Overlay visibility** — The overlay is excluded from screen capture to prevent feedback loops, but some capture tools may still pick it up.
+- **Legacy settings** — `update_interval_ms` is still shown in the settings dialog but the pipeline now uses the adaptive polling intervals above. `model_name` / `model_dir` are unused because the model is loaded from the HuggingFace cache.
 - **Local model quality** — NLLB-200 600M is decent but not as good as cloud APIs (Google Translate, DeepL). Trade-off for offline/private operation.
 
 ## Acknowledgments

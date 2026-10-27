@@ -8,9 +8,12 @@ build/
 .env
 .venv/
 venv/
-models/
+# Downloaded model weights (top-level only; src/models/ is source code)
+/models/
 *.onnx
 *.bin
+*.pt
+*.safetensors
 *.ct2
 config.yaml
 *.log
